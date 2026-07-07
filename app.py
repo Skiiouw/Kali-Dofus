@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-KaliOrganizer — Gestionnaire de fenêtres Dofus (style Dofus Organizer)
+Kali — Gestionnaire de fenêtres multi-comptes pour Dofus
 Interface inspirée de Windows 11. Aucune dépendance externe (stdlib uniquement).
 
 Fonctionnalités :
@@ -93,7 +93,7 @@ VK_CODES = {
 }
 
 APP_TITLE = "Kali"
-APP_VERSION = "2.0.1"
+APP_VERSION = "2.1"
 # Icône embarquée (PNG base64) — utilisée pour la barre de titre
 # et la barre des tâches, identique au .ico de l'exe et du tray
 ICON_PNG_16 = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAADVUlEQVR4nFWTTWhcVRiG3++7586dn8zcpJkkg+lEpSZUKUo0VhELEkypaZHSRdGFWcRdQGoWFgzCGHFh3YiKliLVhRWMVKWh1BotttgSF3EoGoUYsVUcbZtMMjPJzL0z95zzuQiIPvt39bwPoSCMabIFkczVIkaaN292wjoQC8J/IIaADeLdPZWdD+Cr14jWCwVhAoCDS7K7dPL4qcr8bL/oCMQKIhaw5t81sQOxBqQU/KF913rHjoyfGaSL6ohI++XJN0//dWo6b63VEjXZhKE4ngf2kgARJGpC1+tg1yFOtNmNxSt32mZ4ekJkl7o2j5FacS5vrWh2PeU/tB/+/UOoFhdQLX4NWIPEjkF07T2E1moVK19+wLpe1bXiXOdvX0w8yeHKraw0QyHXJRtswh/aizuem0T7g/ugN9ahMlncNfU+8uOTiCq3YBobYBUj2wyltf53ltlRBkREIiBHwYYN6IqGbdRAAux44T349/bj11ensHr+JFQqAxILYiZWjlFiLREBkTZkNmtoaYPIUQiCED3PHkN6eA9+Of4ufp85BpXphG7UoYMGOa0WmIiUw4A2gq72NtPx+CHkBnZKTxOSPXAYyb48NhZ/Qnn+Q+waenjLpRUkFOnNRDYeBAFUzPMkCEOMPvpIOPD865yLs+nPQZc78gjqLSAbwZ06CsTTgImgjUVvdzb67NvvY2drNVJB0KR0KomZ2XNJdXHI6R17GdufHsPyzOf4udQGbMvB//QVxMrLsLEUIBakWzbZdzcPvDgiTMwiInC9OGStBA5qUEojU13GtktT4HQnGgfegJvpQsIRxBNJKKXEdV2AWdga7UBEBAAcF5zMQPkK4vci9scC/AsvIcoNYmX0LRg3BTF661zWitWRo7yO7grFPBIdgeMpVBfO4/rbZVSLC0B7F1JLZwGjEXXdA+33wSsvwVgrFPMo1tGzrvr2YK5032M3NhYv50RHeu3KGVq98DHYi4PjSWgDJH78BAkTQWJtiMgR0k2VHhyu3v5Ex6x6h6h88Ad5ih33o8p3s71WRyBHAdZCrN2KiRkAAVaDXRf+7tEb+WeOjp8gKlGhIDw9TXZCJHf9m/r+1sqfWUAB1v4vZzALoOFlb1vbPpw+d4KoVCgI/wOLWZJSyhb/iAAAAABJRU5ErkJggg=="
@@ -103,9 +103,9 @@ ICON_PNG_32 = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAHNklEQVR4nLWXe4xU9
 
 
 def config_path():
-    # Config dans %APPDATA%\KaliOrganizer (standard pour un logiciel installé,
+    # Config dans %APPDATA%\Kali (standard pour un logiciel installé,
     # car Program Files n'est pas modifiable sans droits admin)
-    base = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "KaliOrganizer")
+    base = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Kali")
     os.makedirs(base, exist_ok=True)
     return os.path.join(base, "config.json")
 
@@ -147,7 +147,7 @@ def get_window_class(hwnd):
 def enum_dofus_windows():
     """Retourne [(hwnd, nom_perso, titre_complet)] pour chaque fenêtre Dofus.
 
-    Détection triple, comme Dofus Organizer :
+    Détection triple :
       1. classe de fenêtre 'UnityWndClass' (moteur Unity de Dofus 3)
       2. nom du processus contenant 'dofus'
       3. titre contenant 'dofus' (secours)
@@ -317,7 +317,7 @@ class TrayThread(threading.Thread):
     def _load_icon(self):
         # 1) .ico du dossier de mises à jour (permet de changer d'icône
         #    sans recompiler : il suffit d'y déposer un nouveau .ico)
-        upd = os.path.join(os.path.dirname(config_path()), "kaliorganizer.ico")
+        upd = os.path.join(os.path.dirname(config_path()), "kali.ico")
         if os.path.exists(upd):
             h = user32.LoadImageW(None, upd, 1, 0, 0, 0x10 | 0x40)
             if h:
@@ -330,7 +330,7 @@ class TrayThread(threading.Thread):
                 return h
         # script : charge le .ico s'il est à côté
         ico = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "kaliorganizer.ico")
+                           "kali.ico")
         if os.path.exists(ico):
             h = user32.LoadImageW(None, ico, 1, 0, 0, 0x10 | 0x40)
             if h:
@@ -760,7 +760,7 @@ class App:
     def _check_updates(self, manual):
         try:
             req = urllib.request.Request(
-                UPDATE_URL, headers={"User-Agent": "KaliOrganizer",
+                UPDATE_URL, headers={"User-Agent": "Kali",
                                      "Cache-Control": "no-cache"})
             data = urllib.request.urlopen(req, timeout=10).read().decode("utf-8")
             remote_v = parse_remote_version(data)
@@ -788,7 +788,7 @@ class App:
         messagebox.showinfo(
             APP_TITLE,
             f"Mise à jour v{new_version} installée !\n\n"
-            "KaliOrganizer va redémarrer pour l'appliquer.")
+            "Kali va redémarrer pour l'appliquer.")
         self.restart_app()
 
     def restart_app(self):
@@ -1170,11 +1170,11 @@ MUTEX_HANDLE = None
 
 
 def already_running():
-    """Verrou système : True si une instance de KaliOrganizer tourne déjà."""
+    """Verrou système : True si une instance de Kali tourne déjà."""
     global MUTEX_HANDLE
     kernel32.SetLastError(0)
     MUTEX_HANDLE = kernel32.CreateMutexW(None, False,
-                                         "KaliOrganizer_Instance_Unique")
+                                         "Kali_Instance_Unique")
     return kernel32.GetLastError() == 183  # ERROR_ALREADY_EXISTS
 
 
@@ -1182,7 +1182,6 @@ if __name__ == "__main__":
     if already_running():
         _r = tk.Tk()
         _r.withdraw()
-        from tkinter import messagebox
         messagebox.showinfo(
             APP_TITLE,
             APP_TITLE + " est déjà lancé.\n\n"
