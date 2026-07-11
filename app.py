@@ -93,7 +93,7 @@ VK_CODES = {
 }
 
 APP_TITLE = "Kali"
-APP_VERSION = "2.2"
+APP_VERSION = "2.2.1"
 # Icône embarquée (PNG base64) — utilisée pour la barre de titre
 # et la barre des tâches, identique au .ico de l'exe et du tray
 ICON_PNG_16 = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAADVUlEQVR4nFWTTWhcVRiG3++7586dn8zcpJkkg+lEpSZUKUo0VhELEkypaZHSRdGFWcRdQGoWFgzCGHFh3YiKliLVhRWMVKWh1BotttgSF3EoGoUYsVUcbZtMMjPJzL0z95zzuQiIPvt39bwPoSCMabIFkczVIkaaN292wjoQC8J/IIaADeLdPZWdD+Cr14jWCwVhAoCDS7K7dPL4qcr8bL/oCMQKIhaw5t81sQOxBqQU/KF913rHjoyfGaSL6ohI++XJN0//dWo6b63VEjXZhKE4ngf2kgARJGpC1+tg1yFOtNmNxSt32mZ4ekJkl7o2j5FacS5vrWh2PeU/tB/+/UOoFhdQLX4NWIPEjkF07T2E1moVK19+wLpe1bXiXOdvX0w8yeHKraw0QyHXJRtswh/aizuem0T7g/ugN9ahMlncNfU+8uOTiCq3YBobYBUj2wyltf53ltlRBkREIiBHwYYN6IqGbdRAAux44T349/bj11ensHr+JFQqAxILYiZWjlFiLREBkTZkNmtoaYPIUQiCED3PHkN6eA9+Of4ufp85BpXphG7UoYMGOa0WmIiUw4A2gq72NtPx+CHkBnZKTxOSPXAYyb48NhZ/Qnn+Q+waenjLpRUkFOnNRDYeBAFUzPMkCEOMPvpIOPD865yLs+nPQZc78gjqLSAbwZ06CsTTgImgjUVvdzb67NvvY2drNVJB0KR0KomZ2XNJdXHI6R17GdufHsPyzOf4udQGbMvB//QVxMrLsLEUIBakWzbZdzcPvDgiTMwiInC9OGStBA5qUEojU13GtktT4HQnGgfegJvpQsIRxBNJKKXEdV2AWdga7UBEBAAcF5zMQPkK4vci9scC/AsvIcoNYmX0LRg3BTF661zWitWRo7yO7grFPBIdgeMpVBfO4/rbZVSLC0B7F1JLZwGjEXXdA+33wSsvwVgrFPMo1tGzrvr2YK5032M3NhYv50RHeu3KGVq98DHYi4PjSWgDJH78BAkTQWJtiMgR0k2VHhyu3v5Ex6x6h6h88Ad5ih33o8p3s71WRyBHAdZCrN2KiRkAAVaDXRf+7tEb+WeOjp8gKlGhIDw9TXZCJHf9m/r+1sqfWUAB1v4vZzALoOFlb1vbPpw+d4KoVCgI/wOLWZJSyhb/iAAAAABJRU5ErkJggg=="
@@ -827,18 +827,15 @@ class App:
 
     # ---------------- menu options ----------------
     def build_options_menu(self):
-        self.var_notify = tk.BooleanVar(value=self.cfg.get("notify_session", True))
+        self.var_notify = tk.BooleanVar(
+            value=self.cfg.get("notify_session", True)
+            or self.cfg.get("break_reminder", True))
         m = tk.Menu(self.root, tearoff=0, bg=C_CARD, fg=C_TEXT,
                     activebackground=C_ACCENT_D, activeforeground=C_TEXT,
                     bd=0, font=self.f_small)
-        m.add_checkbutton(label="Notification de temps de jeu",
+        m.add_checkbutton(label="Notifications (temps de jeu & pauses)",
                           variable=self.var_notify,
                           command=self.on_toggle_notify,
-                          selectcolor=C_ACCENT)
-        self.var_break = tk.BooleanVar(value=self.cfg.get("break_reminder", True))
-        m.add_checkbutton(label="Rappel de pause (toutes les heures)",
-                          variable=self.var_break,
-                          command=self.on_toggle_break,
                           selectcolor=C_ACCENT)
         # sous-menu : modificateur d'accès direct aux persos
         self.var_direct = tk.StringVar(value=self.cfg.get("direct_mod", "Alt"))
@@ -868,11 +865,10 @@ class App:
         self.opt_menu.tk_popup(event.x_root, event.y_root)
 
     def on_toggle_notify(self):
-        self.cfg["notify_session"] = self.var_notify.get()
-        self.save_config()
-
-    def on_toggle_break(self):
-        self.cfg["break_reminder"] = self.var_break.get()
+        # une seule option pour les deux notifications de session
+        state = self.var_notify.get()
+        self.cfg["notify_session"] = state
+        self.cfg["break_reminder"] = state
         self.save_config()
 
     def on_toggle_autoupd(self):
