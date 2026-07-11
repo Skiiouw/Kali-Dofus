@@ -93,7 +93,39 @@ VK_CODES = {
 }
 
 APP_TITLE = "Kali"
-APP_VERSION = "2.3"
+APP_VERSION = "2.4"
+
+# Style par classe : (glyphe d'arme stylisé, couleur) — dessins génériques,
+# aucune ressource Ankama. Détecté depuis le titre "Nom - Classe - ...".
+CLASS_STYLE = {
+    "feca":       ("\u26e8", "#5ec8a8"),   # bouclier
+    "osamodas":   ("\u265e", "#e0955a"),   # créature
+    "enutrof":    ("\u26cf", "#e6c84f"),   # pelle/pioche
+    "sram":       ("\u2620", "#a67fd4"),   # dague/ombre
+    "xelor":      ("\u231b", "#5a9de0"),   # sablier
+    "ecaflip":    ("\u2684", "#e05a5a"),   # dé
+    "eniripsa":   ("\u271a", "#f08fc0"),   # fiole/soin
+    "iop":        ("\u2694", "#e07a3c"),   # épée
+    "cra":        ("\u27b9", "#7fd45e"),   # flèche
+    "sadida":     ("\u2740", "#4faf6e"),   # ronce/fleur
+    "sacrieur":   ("\u2665", "#d44f5e"),   # sang
+    "pandawa":    ("\u262f", "#d4b98a"),   # tonneau/équilibre
+    "roublard":   ("\u2734", "#9aa0a6"),   # bombe
+    "zobal":      ("\u263b", "#b08968"),   # masque
+    "steamer":    ("\u2699", "#5ad4d4"),   # mécanisme
+    "eliotrope":  ("\u25ce", "#7ab8ff"),   # portail
+    "huppermage": ("\u2726", "#b06fe0"),   # rune
+    "ouginak":    ("\u263e", "#c98a5a"),   # croc
+    "forgelance": ("\u2699", "#8a9ab8"),   # lance
+}
+CLASS_DEFAULT = ("\u25c6", "#6f7276")
+
+
+def normalize_class(txt):
+    t = txt.strip().lower()
+    for a, b in (("â", "a"), ("é", "e"), ("è", "e"), ("ê", "e"), ("ï", "i")):
+        t = t.replace(a, b)
+    return t
 # Icône embarquée (PNG base64) — utilisée pour la barre de titre
 # et la barre des tâches, identique au .ico de l'exe et du tray
 ICON_PNG_16 = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAADVUlEQVR4nFWTTWhcVRiG3++7586dn8zcpJkkg+lEpSZUKUo0VhELEkypaZHSRdGFWcRdQGoWFgzCGHFh3YiKliLVhRWMVKWh1BotttgSF3EoGoUYsVUcbZtMMjPJzL0z95zzuQiIPvt39bwPoSCMabIFkczVIkaaN292wjoQC8J/IIaADeLdPZWdD+Cr14jWCwVhAoCDS7K7dPL4qcr8bL/oCMQKIhaw5t81sQOxBqQU/KF913rHjoyfGaSL6ohI++XJN0//dWo6b63VEjXZhKE4ngf2kgARJGpC1+tg1yFOtNmNxSt32mZ4ekJkl7o2j5FacS5vrWh2PeU/tB/+/UOoFhdQLX4NWIPEjkF07T2E1moVK19+wLpe1bXiXOdvX0w8yeHKraw0QyHXJRtswh/aizuem0T7g/ugN9ahMlncNfU+8uOTiCq3YBobYBUj2wyltf53ltlRBkREIiBHwYYN6IqGbdRAAux44T349/bj11ensHr+JFQqAxILYiZWjlFiLREBkTZkNmtoaYPIUQiCED3PHkN6eA9+Of4ufp85BpXphG7UoYMGOa0WmIiUw4A2gq72NtPx+CHkBnZKTxOSPXAYyb48NhZ/Qnn+Q+waenjLpRUkFOnNRDYeBAFUzPMkCEOMPvpIOPD865yLs+nPQZc78gjqLSAbwZ06CsTTgImgjUVvdzb67NvvY2drNVJB0KR0KomZ2XNJdXHI6R17GdufHsPyzOf4udQGbMvB//QVxMrLsLEUIBakWzbZdzcPvDgiTMwiInC9OGStBA5qUEojU13GtktT4HQnGgfegJvpQsIRxBNJKKXEdV2AWdga7UBEBAAcF5zMQPkK4vci9scC/AsvIcoNYmX0LRg3BTF661zWitWRo7yO7grFPBIdgeMpVBfO4/rbZVSLC0B7F1JLZwGjEXXdA+33wSsvwVgrFPMo1tGzrvr2YK5032M3NhYv50RHeu3KGVq98DHYi4PjSWgDJH78BAkTQWJtiMgR0k2VHhyu3v5Ex6x6h6h88Ad5ih33o8p3s71WRyBHAdZCrN2KiRkAAVaDXRf+7tEb+WeOjp8gKlGhIDw9TXZCJHf9m/r+1sqfWUAB1v4vZzALoOFlb1vbPpw+d4KoVCgI/wOLWZJSyhb/iAAAAABJRU5ErkJggg=="
@@ -465,6 +497,8 @@ class App:
         self.drag = None
         self.anim_running = False
         self.session_start = None  # début de la session Dofus en cours
+        self.minimized = False
+        self.mb = None             # mini-barre flottante (mode réduit)
         self.break_notified = 0    # heures de jeu déjà notifiées
         self.cfg = self.load_config()
 
@@ -474,7 +508,7 @@ class App:
             on_quit=lambda: self.root.after(0, self.on_close),
         )
         self.tray.start()
-        self.root.after(600, self.tray.show)
+        # (icône de zone de notif affichée uniquement quand Kali est réduit)
 
         self.f_title = tkfont.Font(family="Segoe UI", size=11, weight="bold")
         self.f_body  = tkfont.Font(family="Segoe UI", size=10)
@@ -531,7 +565,8 @@ class App:
     # ---------------- config ----------------
     def load_config(self):
         cfg = {"hk_next": "F1", "hk_prev": "F2", "topmost": True, "order": [],
-               "notify_session": True, "direct_mod": "Alt", "auto_update": True, "break_reminder": True}
+               "notify_session": True, "direct_mod": "Alt", "auto_update": True, "break_reminder": True,
+               "minibar": True}
         try:
             with open(config_path(), "r", encoding="utf-8") as f:
                 cfg.update(json.load(f))
@@ -682,7 +717,99 @@ class App:
         self.root.geometry(f"{w}x{h}")
 
     def hide_to_tray(self):
+        self.minimized = True
         self.root.withdraw()
+        self.tray.show()          # icône de notif SEULEMENT en mode réduit
+        self.show_minibar()
+
+    # ---------------- mini-barre flottante (mode réduit) ----------------
+    def show_minibar(self):
+        if not self.cfg.get("minibar", True):
+            return
+        self.hide_minibar()
+        mb = tk.Toplevel(self.root)
+        mb.overrideredirect(True)
+        mb.attributes("-topmost", True)
+        mb.configure(bg=C_BG, highlightbackground=C_STROKE,
+                     highlightthickness=1)
+        self.mb = mb
+        self.fill_minibar()
+        # position mémorisée, sinon coin bas-droit au-dessus de la barre
+        pos = self.cfg.get("minibar_pos")
+        mb.update_idletasks()
+        w, h = mb.winfo_reqwidth(), mb.winfo_reqheight()
+        sw, sh = mb.winfo_screenwidth(), mb.winfo_screenheight()
+        if pos and 0 <= pos[0] <= sw - 40 and 0 <= pos[1] <= sh - 40:
+            x, y = pos
+        else:
+            x, y = sw - w - 16, sh - h - 60
+        mb.geometry(f"+{x}+{y}")
+
+    def hide_minibar(self):
+        if self.mb is not None:
+            try:
+                self.mb.destroy()
+            except Exception:
+                pass
+            self.mb = None
+
+    def fill_minibar(self):
+        if self.mb is None:
+            return
+        for w in self.mb.winfo_children():
+            w.destroy()
+        # poignée de déplacement
+        grip = tk.Label(self.mb, text="\u22ee\u22ee", bg=C_BG, fg=C_TEXT_2,
+                        font=("Segoe UI", 9), padx=4, cursor="fleur")
+        grip.pack(side="left", fill="y")
+        for wdg in (grip, self.mb):
+            wdg.bind("<ButtonPress-1>", self.mb_press)
+            wdg.bind("<B1-Motion>", self.mb_drag)
+            wdg.bind("<ButtonRelease-1>", self.mb_release)
+        # une case par perso, dans l'ordre d'initiative
+        for i, name in enumerate(self.order):
+            glyph, color = CLASS_STYLE.get(self.klass.get(name, ""),
+                                           CLASS_DEFAULT)
+            active = (i == self.current_index)
+            cell = tk.Label(self.mb,
+                            text=f"{glyph}\n{i + 1}",
+                            font=("Segoe UI", 10), justify="center",
+                            width=3, pady=2,
+                            bg=C_CARD_ACT if active else C_CARD,
+                            fg=color, cursor="hand2",
+                            highlightbackground=(C_ACCENT if active
+                                                 else C_STROKE),
+                            highlightthickness=1)
+            cell.pack(side="left", padx=2, pady=3)
+            cell.bind("<Button-1>", lambda e, i=i: self.go_to(i))
+            cell.bind("<Enter>", lambda e, c=cell, a=active:
+                      c.configure(bg=C_CARD_HOV if not a else C_CARD_ACT))
+            cell.bind("<Leave>", lambda e, c=cell, a=active:
+                      c.configure(bg=C_CARD if not a else C_CARD_ACT))
+        # bouton : rouvrir la fenêtre principale
+        btn = tk.Label(self.mb, text="\u25a3", bg=C_BG, fg=C_TEXT_2,
+                       font=("Segoe UI", 10), padx=6, cursor="hand2")
+        btn.pack(side="left", fill="y")
+        btn.bind("<Button-1>", lambda e: self.restore_from_tray())
+        btn.bind("<Enter>", lambda e: btn.configure(fg=C_TEXT))
+        btn.bind("<Leave>", lambda e: btn.configure(fg=C_TEXT_2))
+
+    def mb_press(self, event):
+        self._mb_drag = (event.x_root - self.mb.winfo_x(),
+                         event.y_root - self.mb.winfo_y(), False)
+
+    def mb_drag(self, event):
+        if not getattr(self, "_mb_drag", None):
+            return
+        dx, dy, _ = self._mb_drag
+        self._mb_drag = (dx, dy, True)
+        self.mb.geometry(f"+{event.x_root - dx}+{event.y_root - dy}")
+
+    def mb_release(self, event):
+        if getattr(self, "_mb_drag", None) and self._mb_drag[2]:
+            self.cfg["minibar_pos"] = [self.mb.winfo_x(), self.mb.winfo_y()]
+            self.save_config()
+        self._mb_drag = None
 
     def make_button(self, parent, text, cmd):
         b = tk.Label(parent, text=text, bg=C_CARD, fg=C_TEXT, font=self.f_small,
@@ -709,12 +836,17 @@ class App:
         # noms uniques : si deux fenêtres ont le même titre (ex: deux "Dofus"
         # pas encore connectés), on suffixe (2), (3)...
         self.windows = {}
-        for hwnd, name, _ in wins:
+        self.klass = getattr(self, "klass", {})
+        for hwnd, name, title in wins:
             base, n, unique = name, 2, name
             while unique in self.windows:
                 unique = f"{base} ({n})"
                 n += 1
             self.windows[unique] = hwnd
+            # classe depuis le titre : "Nom - Classe - version - Release"
+            seg = title.split(" - ")
+            if len(seg) >= 2:
+                self.klass[unique] = normalize_class(seg[1])
 
         # ORDRE MAÎTRE persistant : mémorise la position de TOUS les comptes
         # déjà vus, même fermés — les nouveaux sont ajoutés à la fin.
@@ -755,7 +887,7 @@ class App:
                 self.break_notified = e // 3600
                 hh = self.break_notified
                 try:
-                    self.tray.notify(
+                    self.notify_safe(
                         "Pense à faire une pause !",
                         f"Ça fait {hh} heure{'s' if hh > 1 else ''} que tu "
                         "joues. Bouge un peu, bois de l'eau — Dofus "
@@ -837,6 +969,11 @@ class App:
                           variable=self.var_notify,
                           command=self.on_toggle_notify,
                           selectcolor=C_ACCENT)
+        self.var_minibar = tk.BooleanVar(value=self.cfg.get("minibar", True))
+        m.add_checkbutton(label="Mini-barre en mode réduit",
+                          variable=self.var_minibar,
+                          command=self.on_toggle_minibar,
+                          selectcolor=C_ACCENT)
         # sous-menu : modificateur d'accès direct aux persos
         self.var_direct = tk.StringVar(value=self.cfg.get("direct_mod", "Alt"))
         sm = tk.Menu(m, tearoff=0, bg=C_CARD, fg=C_TEXT,
@@ -871,6 +1008,12 @@ class App:
         self.cfg["break_reminder"] = state
         self.save_config()
 
+    def on_toggle_minibar(self):
+        self.cfg["minibar"] = self.var_minibar.get()
+        self.save_config()
+        if self.minimized:
+            self.show_minibar() if self.cfg["minibar"] else self.hide_minibar()
+
     def on_toggle_autoupd(self):
         self.cfg["auto_update"] = self.var_autoupd.get()
         self.save_config()
@@ -880,6 +1023,14 @@ class App:
             os.startfile(os.path.dirname(config_path()))
         except Exception:
             pass
+
+    def notify_safe(self, title, message):
+        """Notification qui respecte le mode 'icône exclusive' : si Kali
+        n'est pas réduit, l'icône apparaît le temps de la bulle puis repart."""
+        self.tray.notify(title, message)
+        if not self.minimized:
+            self.root.after(12000, lambda: (self.tray.hide()
+                                            if not self.minimized else None))
 
     def notify_session_end(self, elapsed):
         if not self.cfg.get("notify_session", True):
@@ -893,7 +1044,7 @@ class App:
             dur = f"{m} min"
         else:
             dur = "moins d'une minute"
-        self.tray.notify("Session Dofus terminée",
+        self.notify_safe("Session Dofus terminée",
                          f"Tu as joué pendant {dur}. À bientôt dans le Monde des Douze !")
 
     CARD_H = 34   # hauteur d'une carte
@@ -910,6 +1061,8 @@ class App:
 
         n = len(self.order)
         self.lbl_count.config(text=f"{n} fenêtre{'s' if n > 1 else ''} Dofus")
+        if self.mb is not None:
+            self.fill_minibar()
 
         if not self.order:
             tk.Label(self.list_frame,
@@ -1156,6 +1309,9 @@ class App:
 
     # ---------------- zone de notification (systray) ----------------
     def restore_from_tray(self):
+        self.minimized = False
+        self.tray.hide()          # retour barre des tâches : icône retirée
+        self.hide_minibar()
         self.root.deiconify()
         self.root.lift()
         # impulsion "premier plan" pour passer devant, puis relâche
