@@ -93,7 +93,7 @@ VK_CODES = {
 }
 
 APP_TITLE = "Kali"
-APP_VERSION = "2.7.1"
+APP_VERSION = "2.7"
 
 # Style par classe : (glyphe d'arme stylisé, couleur) — dessins génériques,
 # aucune ressource Ankama. Détecté depuis le titre "Nom - Classe - ...".
@@ -1042,19 +1042,7 @@ class App:
         except Exception:
             pass
         if getattr(sys, "frozen", False):
-            # Relance DIFFÉRÉE (~1 s) : laisse l'ancienne instance nettoyer
-            # son dossier temporaire _MEI avant que la nouvelle ne démarre
-            # (sinon Windows affiche "Failed to remove temporary directory").
-            env = os.environ.copy()
-            for k in list(env):
-                if k.startswith("_PYI") or k == "_MEIPASS2":
-                    env.pop(k, None)
-            CREATE_NO_WINDOW = 0x08000000
-            subprocess.Popen(
-                ["cmd", "/c",
-                 f'ping -n 2 127.0.0.1 >nul & start "" "{sys.executable}"'],
-                env=env, cwd=os.path.expanduser("~"),
-                creationflags=CREATE_NO_WINDOW)
+            subprocess.Popen([sys.executable])
         else:
             subprocess.Popen([sys.executable, sys.argv[0]])
         os._exit(0)
