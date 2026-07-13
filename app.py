@@ -89,6 +89,7 @@ MOD_NOREPEAT = 0x4000
 
 # Codes de touches virtuelles utilisables comme raccourcis
 VK_CODES = {
+    "Aucune": None,
     "F1": 0x70, "F2": 0x71, "F3": 0x72, "F4": 0x73, "F5": 0x74,
     "F6": 0x75, "F7": 0x76, "F8": 0x77, "F9": 0x78, "F10": 0x79,
     "F11": 0x7A, "F12": 0x7B,
@@ -99,7 +100,7 @@ VK_CODES = {
 }
 
 APP_TITLE = "Kali"
-APP_VERSION = "4.1"
+APP_VERSION = "4.2"
 
 # Style par classe : (glyphe d'arme stylisé, couleur) — dessins génériques,
 # aucune ressource Ankama. Détecté depuis le titre "Nom - Classe - ...".
@@ -986,12 +987,14 @@ class App:
         if self.mb is None:
             return
         self.mb.update_idletasks()
-        w = self.mb_canvas.winfo_reqwidth()
         sw, sh = self.mb.winfo_screenwidth(), self.mb.winfo_screenheight()
         pos = self.cfg.get("minibar_pos")
-        # position valide seulement si entièrement visible à l'écran
-        if (pos and 0 <= pos[0] <= sw - w and 0 <= pos[1] <= sh - self.MB_H):
-            x, y = pos
+        # position mémorisée valide si le coin haut-gauche est à l'écran
+        # (tolérant : on garde la position choisie par l'utilisateur, on la
+        # borne juste pour qu'elle reste attrapable)
+        if pos and isinstance(pos, (list, tuple)) and len(pos) == 2:
+            x = max(0, min(int(pos[0]), sw - 40))
+            y = max(0, min(int(pos[1]), sh - 20))
         else:
             x, y = self._default_minibar_pos()
         self.mb.geometry(f"+{x}+{y}")
@@ -1358,30 +1361,29 @@ class App:
 
     # ---------------- menu options ----------------
     def build_options_menu(self):
-        self.var_notify = tk.BooleanVar(
-            value=self.cfg.get("notify_session", True)
-            or self.cfg.get("break_reminder", True))
         m = tk.Menu(self.root, tearoff=0, bg=C_CARD, fg=C_TEXT,
                     activebackground=C_ACCENT_D, activeforeground=C_TEXT,
                     bd=0, font=self.f_small)
-        m.add_checkbutton(label="Notifications (temps de jeu & pauses)",
-                          variable=self.var_notify,
-                          command=self.on_toggle_notify,
-                          selectcolor=C_ACCENT)
-        self.var_focus1 = tk.BooleanVar(
-            value=self.cfg.get("auto_focus_first", True))
-        m.add_checkbutton(label="Focus auto du perso n\u00b01",
-                          variable=self.var_focus1,
-                          command=self.on_toggle_focus1,
-                          selectcolor=C_ACCENT)
+
+        # ---- Section MINI-BARRE ----
+        m.add_command(label="—  Mini-barre  —", state="disabled")
         self.var_minibar = tk.BooleanVar(value=self.cfg.get("minibar", True))
-        m.add_checkbutton(label="Mini-barre en mode réduit",
+        m.add_checkbutton(label="Afficher en mode réduit",
                           variable=self.var_minibar,
                           command=self.on_toggle_minibar,
                           selectcolor=C_ACCENT)
-        m.add_command(label="Réinitialiser la position de la mini-barre",
+        m.add_command(label="Réinitialiser sa position",
                       command=self.reset_minibar_position)
-        # sous-menu : modificateur d'accès direct aux persos
+
+        # ---- Section PERSONNAGES ----
+        m.add_separator()
+        m.add_command(label="—  Personnages  —", state="disabled")
+        self.var_focus1 = tk.BooleanVar(
+            value=self.cfg.get("auto_focus_first", True))
+        m.add_checkbutton(label="Focus auto du perso n\u00b01 au lancement",
+                          variable=self.var_focus1,
+                          command=self.on_toggle_focus1,
+                          selectcolor=C_ACCENT)
         self.var_direct = tk.StringVar(value=self.cfg.get("direct_mod", "Alt"))
         sm = tk.Menu(m, tearoff=0, bg=C_CARD, fg=C_TEXT,
                      activebackground=C_ACCENT_D, activeforeground=C_TEXT,
@@ -1391,18 +1393,33 @@ class App:
                                variable=self.var_direct,
                                command=lambda mo=mode: self.set_direct_mod(mo),
                                selectcolor=C_ACCENT)
-        m.add_cascade(label="Accès direct aux persos", menu=sm)
-        # mises à jour
+        m.add_cascade(label="Touche d'accès direct (1-8)", menu=sm)
+
+        # ---- Section NOTIFICATIONS ----
+        m.add_separator()
+        m.add_command(label="—  Notifications  —", state="disabled")
+        self.var_notify = tk.BooleanVar(
+            value=self.cfg.get("notify_session", True)
+            or self.cfg.get("break_reminder", True))
+        m.add_checkbutton(label="Temps de jeu & rappels de pause",
+                          variable=self.var_notify,
+                          command=self.on_toggle_notify,
+                          selectcolor=C_ACCENT)
+
+        # ---- Section MISES À JOUR ----
+        m.add_separator()
+        m.add_command(label="—  Mises à jour  —", state="disabled")
         self.var_autoupd = tk.BooleanVar(value=self.cfg.get("auto_update", True))
-        m.add_checkbutton(label="Mises à jour automatiques",
+        m.add_checkbutton(label="Automatiques au démarrage",
                           variable=self.var_autoupd,
                           command=self.on_toggle_autoupd,
                           selectcolor=C_ACCENT)
-        m.add_command(label="Vérifier les mises à jour",
+        m.add_command(label="Vérifier maintenant",
                       command=lambda: self.check_updates_async(manual=True))
+
+        # ---- Section AVANCÉ ----
         m.add_separator()
         m.add_command(label="Diagnostic", command=self.show_diag)
-        m.add_separator()
         m.add_command(label="Ouvrir le dossier des mises à jour",
                       command=self.open_update_folder)
         self.opt_menu = m
@@ -1750,8 +1767,9 @@ class App:
         self.apply_hotkeys()
 
     def on_hotkey_change(self):
-        if self.var_next.get() == self.var_prev.get():
-            # évite les doublons : décale l'autre
+        # deux touches identiques = conflit, SAUF si "Aucune" (désactivé)
+        if (self.var_next.get() == self.var_prev.get()
+                and self.var_next.get() != "Aucune"):
             keys = list(VK_CODES.keys())
             i = keys.index(self.var_next.get())
             self.var_prev.set(keys[(i + 1) % len(keys)])
