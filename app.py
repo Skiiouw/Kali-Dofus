@@ -99,7 +99,7 @@ VK_CODES = {
 }
 
 APP_TITLE = "Kali"
-APP_VERSION = "3.7"
+APP_VERSION = "3.8"
 
 # Style par classe : (glyphe d'arme stylisé, couleur) — dessins génériques,
 # aucune ressource Ankama. Détecté depuis le titre "Nom - Classe - ...".
@@ -733,8 +733,7 @@ class App:
         cfg = {"hk_next": "F1", "hk_prev": "F2", "topmost": True, "order": [],
                "notify_session": True, "direct_mod": "Alt", "auto_update": True, "break_reminder": True,
                "minibar": True, "auto_focus_first": True,
-               "minibar_locked": False, "minibar_pos": None,
-               "minibar_dock": False}
+               "minibar_locked": False, "minibar_pos": None}
         try:
             with open(config_path(), "r", encoding="utf-8") as f:
                 cfg.update(json.load(f))
@@ -928,14 +927,11 @@ class App:
         self._place_minibar()
 
     def _default_minibar_pos(self):
-        """Position par défaut, selon le mode d'ancrage."""
+        """Coin bas-droit, toujours dans l'écran."""
         self.mb.update_idletasks()
         w = self.mb_canvas.winfo_reqwidth()
         sw = self.mb.winfo_screenwidth()
         sh = self.mb.winfo_screenheight()
-        if self.cfg.get("minibar_dock", False):
-            # collée en bas de l'écran, centrée (le long de la barre des tâches)
-            return (sw - w) // 2, sh - self.MB_H - 2
         return sw - w - 20, sh - self.MB_H - 70
 
     def _place_minibar(self):
@@ -1324,12 +1320,6 @@ class App:
                           selectcolor=C_ACCENT)
         m.add_command(label="Réinitialiser la position de la mini-barre",
                       command=self.reset_minibar_position)
-        self.var_mbdock = tk.BooleanVar(
-            value=self.cfg.get("minibar_dock", False))
-        m.add_checkbutton(label="Ancrer à la barre des tâches",
-                          variable=self.var_mbdock,
-                          command=self.on_toggle_mbdock,
-                          selectcolor=C_ACCENT)
         # sous-menu : modificateur d'accès direct aux persos
         self.var_direct = tk.StringVar(value=self.cfg.get("direct_mod", "Alt"))
         sm = tk.Menu(m, tearoff=0, bg=C_CARD, fg=C_TEXT,
@@ -1381,13 +1371,6 @@ class App:
     def on_toggle_mblock(self):
         self.cfg["minibar_locked"] = self.var_mblock.get()
         self.save_config()
-
-    def on_toggle_mbdock(self):
-        self.cfg["minibar_dock"] = self.var_mbdock.get()
-        # l'ancrage impose une position calculée : on oublie l'ancienne
-        self.cfg["minibar_pos"] = None
-        self.save_config()
-        self.reset_minibar_position()
 
     def on_toggle_autoupd(self):
         self.cfg["auto_update"] = self.var_autoupd.get()
