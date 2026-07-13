@@ -65,6 +65,7 @@ IsIconic = user32.IsIconic
 ShowWindow = user32.ShowWindow
 SetForegroundWindow = user32.SetForegroundWindow
 GetForegroundWindow = user32.GetForegroundWindow
+GetAncestor = user32.GetAncestor
 GetWindowThreadProcessId = user32.GetWindowThreadProcessId
 AttachThreadInput = user32.AttachThreadInput
 BringWindowToTop = user32.BringWindowToTop
@@ -98,7 +99,7 @@ VK_CODES = {
 }
 
 APP_TITLE = "Kali"
-APP_VERSION = "3.2"
+APP_VERSION = "3.3"
 
 # Style par classe : (glyphe d'arme stylisé, couleur) — dessins génériques,
 # aucune ressource Ankama. Détecté depuis le titre "Nom - Classe - ...".
@@ -143,6 +144,13 @@ CLASS_ABBR = {
 gdi32 = ctypes.windll.gdi32
 _WICON_CACHE = {}
 
+# Pillow : anti-aliasing de qualité pour les jetons (embarqué dans l'exe).
+try:
+    from PIL import Image, ImageDraw, ImageTk
+    PIL_OK = True
+except Exception:
+    PIL_OK = False
+
 
 class BITMAPINFOHEADER(ctypes.Structure):
     _fields_ = [
@@ -156,90 +164,108 @@ class BITMAPINFOHEADER(ctypes.Structure):
 
 
 def get_window_hicon(hwnd):
-    """Récupère le handle de l'icône de la fenêtre (sans bloquer)."""
+    """Handle de l'icône de la fenêtre (priorité aux grandes icônes)."""
     res = wt.DWORD()
-    # priorité aux GRANDES icônes pour la qualité : ICON_BIG puis fallbacks
     for wparam in (1, 2, 0):  # ICON_BIG, ICON_SMALL2, ICON_SMALL
         if user32.SendMessageTimeoutW(hwnd, 0x7F, wparam, 0,
                                       0x2, 200, ctypes.byref(res)) and res.value:
             return res.value
     get_cls = getattr(user32, "GetClassLongPtrW", user32.GetClassLongW)
-    return get_cls(hwnd, -14) or get_cls(hwnd, -34)  # GCLP_HICON / HICONSM
+    return get_cls(hwnd, -14) or get_cls(hwnd, -34)
 
 
-def window_icon_image(hwnd, size, bg=None):
-    """PhotoImage haute qualité de l'icône de la fenêtre, DÉCOUPÉE EN ROND
-    (coins transparents). Si `bg` est fourni, les pixels transparents de
-    l'icône elle-même sont comblés par cette couleur ; sinon fond transparent.
-    L'icône est rendue par Windows à sa taille native puis réduite (supersampling).
-    Retourne None si la fenêtre n'a pas d'icône exploitable."""
-    key = (hwnd, size, bg)
-    if key in _WICON_CACHE:
-        return _WICON_CACHE[key]
-    img = None
-    fill = bg if bg else "#16161e"
+def _hicon_to_rgba(hicon, cap):
+    """Rend l'icône dans un buffer BGRA `cap`x`cap`. Retourne bytes ou None."""
     try:
-        hicon = get_window_hicon(hwnd)
-        if hicon:
-            cap = size
-            while cap < size * 2:
-                cap *= 2
-            cap = min(cap, 128)
-            hdc = user32.GetDC(0)
-            mem = gdi32.CreateCompatibleDC(hdc)
-            bmi = BITMAPINFOHEADER()
-            bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
-            bmi.biWidth, bmi.biHeight = cap, -cap
-            bmi.biPlanes, bmi.biBitCount = 1, 32
-            bits = ctypes.c_void_p()
-            hbmp = gdi32.CreateDIBSection(mem, ctypes.byref(bmi), 0,
-                                          ctypes.byref(bits), None, 0)
-            oldobj = gdi32.SelectObject(mem, hbmp)
-            r, g, b = (int(fill[i:i + 2], 16) for i in (1, 3, 5))
-            brush = gdi32.CreateSolidBrush((b << 16) | (g << 8) | r)
-            rect = (ctypes.c_long * 4)(0, 0, cap, cap)
-            user32.FillRect(mem, ctypes.byref(rect), brush)
-            gdi32.DeleteObject(brush)
-            user32.DrawIconEx(mem, 0, 0, hicon, cap, cap, 0, None, 3)
-            raw = ctypes.string_at(bits.value, cap * cap * 4)
-            gdi32.SelectObject(mem, oldobj)
-            gdi32.DeleteObject(hbmp)
-            gdi32.DeleteDC(mem)
-            user32.ReleaseDC(0, hdc)
-
-            img = tk.PhotoImage(width=size, height=size)
-            cxf = (size - 1) / 2.0
-            rad2 = (size / 2.0) ** 2
-            step = cap / size
-            rows = []
-            outside = []   # (x, y) hors du disque -> transparents
-            for y in range(size):
-                y0 = int(y * step); y1 = max(y0 + 1, int((y + 1) * step))
-                dy = y - cxf
-                row = []
-                for x in range(size):
-                    if ((x - cxf) ** 2 + dy * dy) <= rad2:
-                        x0 = int(x * step); x1 = max(x0 + 1, int((x + 1) * step))
-                        sr = sg = sb = cnt = 0
-                        for yy in range(y0, y1):
-                            rb = yy * cap * 4
-                            for xx in range(x0, x1):
-                                o = rb + xx * 4
-                                sb += raw[o]; sg += raw[o+1]; sr += raw[o+2]
-                                cnt += 1
-                        row.append(f"#{sr//cnt:02x}{sg//cnt:02x}{sb//cnt:02x}"
-                                   if cnt else fill)
-                    else:
-                        row.append(fill)
-                        outside.append((x, y))
-                rows.append("{" + " ".join(row) + "}")
-            img.put(" ".join(rows))
-            for x, y in outside:
-                img.transparency_set(x, y, True)
+        hdc = user32.GetDC(0)
+        mem = gdi32.CreateCompatibleDC(hdc)
+        bmi = BITMAPINFOHEADER()
+        bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+        bmi.biWidth, bmi.biHeight = cap, -cap
+        bmi.biPlanes, bmi.biBitCount = 1, 32
+        bits = ctypes.c_void_p()
+        hbmp = gdi32.CreateDIBSection(mem, ctypes.byref(bmi), 0,
+                                      ctypes.byref(bits), None, 0)
+        oldobj = gdi32.SelectObject(mem, hbmp)
+        # fond noir transparent (alpha=0) : on lit l'alpha réel de l'icône
+        user32.DrawIconEx(mem, 0, 0, hicon, cap, cap, 0, None, 3)
+        raw = ctypes.string_at(bits.value, cap * cap * 4)
+        gdi32.SelectObject(mem, oldobj)
+        gdi32.DeleteObject(hbmp)
+        gdi32.DeleteDC(mem)
+        user32.ReleaseDC(0, hdc)
+        return raw
     except Exception:
-        img = None
-    _WICON_CACHE[key] = img
+        return None
+
+
+def window_icon_pil(hwnd, size):
+    """Image Pillow RGBA de l'icône (ronde, anti-aliasée), ou None.
+    Rendu à 4x puis réduit en LANCZOS = qualité maximale."""
+    if not PIL_OK or hwnd is None:
+        return None
+    cap = min(256, max(64, size * 4))
+    raw = None
+    hicon = get_window_hicon(hwnd)
+    if hicon:
+        raw = _hicon_to_rgba(hicon, cap)
+    if raw is None:
+        return None
+    # BGRA -> RGBA
+    img = Image.frombuffer("RGBA", (cap, cap), raw, "raw", "BGRA", 0, 1)
+    # certaines icônes ont un alpha nul partout (mal déclaré) : corrige
+    if img.getchannel("A").getbbox() is None:
+        img.putalpha(255)
+    # masque circulaire anti-aliasé (rendu 4x puis réduit)
+    big = size * 4
+    img = img.resize((big, big), Image.LANCZOS)
+    mask = Image.new("L", (big, big), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, big - 1, big - 1), fill=255)
+    img.putalpha(mask)
+    img = img.resize((size, size), Image.LANCZOS)
     return img
+
+
+def make_token_pil(hwnd, R, ring_hex, active, accent_hex="#4cc2ff",
+                   bg_hex="#16161e"):
+    """Jeton complet Pillow (halo + anneau de classe + icône), tout
+    anti-aliasé. Retourne un ImageTk.PhotoImage prêt à afficher, ou None."""
+    if not PIL_OK:
+        return None
+    halo = 9
+    S = 2 * (R + halo) + 2
+    SS = 4
+    N = S * SS
+    im = Image.new("RGBA", (N, N), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    c = N / 2
+    ring = tuple(int(ring_hex[i:i+2], 16) for i in (1, 3, 5)) + (255,)
+    accent = tuple(int(accent_hex[i:i+2], 16) for i in (1, 3, 5))
+    bg = tuple(int(bg_hex[i:i+2], 16) for i in (1, 3, 5)) + (255,)
+
+    def circle(radius, fill=None, outline=None, width=1):
+        d.ellipse((c - radius, c - radius, c + radius, c + radius),
+                  fill=fill, outline=outline, width=width)
+
+    if active:
+        # halo bleu marqué : anneaux d'alpha décroissant + liseré vif
+        for k in range(halo, 0, -1):
+            a = int(200 * (k / halo))
+            circle((R + k) * SS, outline=accent + (a,), width=2 * SS)
+        circle((R + 2) * SS, outline=accent + (255,), width=SS)
+    ring_w = (3 if active else 2) * SS
+    circle(R * SS, fill=bg)                      # disque de fond
+    circle(R * SS, outline=ring, width=ring_w)   # anneau de classe
+
+    # icône au centre
+    ico = window_icon_pil(hwnd, int((R - 3) * 2) * SS // SS)
+    if ico is not None:
+        ico = ico.resize(((R - 2) * 2 * SS, (R - 2) * 2 * SS), Image.LANCZOS)
+        im.alpha_composite(ico, (int(c - ico.width / 2),
+                                 int(c - ico.height / 2)))
+
+    im = im.resize((S, S), Image.LANCZOS)
+    return ImageTk.PhotoImage(im)
 
 
 def normalize_class(txt):
@@ -644,6 +670,7 @@ class App:
 
         self.refresh_windows()
         self.tick()
+        self.watch_foreground()
 
         # vérification des mises à jour GitHub (2 s après le démarrage,
         # en arrière-plan, silencieuse si pas d'internet)
@@ -843,7 +870,13 @@ class App:
         self.minimized = True
         self.root.withdraw()
         self.tray.show()          # icône de notif SEULEMENT en mode réduit
-        self.show_minibar()
+        # la mini-barre s'affichera via watch_foreground quand Dofus est
+        # au premier plan (montrée tout de suite si c'est déjà le cas)
+        try:
+            if GetForegroundWindow() in self.windows.values():
+                self.show_minibar()
+        except Exception:
+            pass
 
     # ---------------- mini-barre flottante (mode réduit) ----------------
     # Design "portraits flottants" : des jetons circulaires posés directement
@@ -910,30 +943,30 @@ class App:
             tag = f"mb{i}"
             hwnd = self.windows.get(name)
 
-            # halo bleu de sélection (plusieurs cercles dégradés = plus doux)
-            if active:
-                for k, wdt in ((7, 1), (5, 1), (3, 2)):
-                    c.create_oval(cx - R - k, cy - R - k, cx + R + k, cy + R + k,
-                                  outline=C_ACCENT, width=wdt, tags=tag)
-
-            # disque de fond + anneau de classe (adouci : 2 cercles superposés)
-            c.create_oval(cx - R, cy - R, cx + R, cy + R,
-                          fill="#16161e", outline=self._soft(color),
-                          width=1, tags=tag)
-            c.create_oval(cx - R + 1, cy - R + 1, cx + R - 1, cy + R - 1,
-                          fill="", outline=color,
-                          width=2 if active else 2, tags=tag)
-
-            # icône ronde de la fenêtre (déjà détourée en cercle)
-            icon = window_icon_image(hwnd, int((R - 3) * 2), bg="#16161e") \
-                if hwnd else None
-            if icon is not None:
-                self._mb_imgs.append(icon)
-                c.create_image(cx, cy, image=icon, tags=tag)
+            # jeton haute qualité (Pillow) : halo + anneau + icône, anti-aliasé
+            token = make_token_pil(hwnd, R, color, active) if hwnd else None
+            if token is not None:
+                self._mb_imgs.append(token)
+                c.create_image(cx, cy, image=token, tags=tag)
             else:
-                abbr = CLASS_ABBR.get(cls, "?")
-                c.create_text(cx, cy, text=abbr, fill=color,
-                              font=("Segoe UI", 8, "bold"), tags=tag)
+                # repli canvas si Pillow indisponible ou pas d'icône
+                if active:
+                    for k, wdt in ((7, 1), (5, 1), (3, 2)):
+                        c.create_oval(cx - R - k, cy - R - k,
+                                      cx + R + k, cy + R + k,
+                                      outline=C_ACCENT, width=wdt, tags=tag)
+                c.create_oval(cx - R, cy - R, cx + R, cy + R,
+                              fill="#16161e", outline=color,
+                              width=2, tags=tag)
+                pico = window_icon_pil(hwnd, int((R - 3) * 2)) if hwnd else None
+                if pico is not None:
+                    tkimg = ImageTk.PhotoImage(pico)
+                    self._mb_imgs.append(tkimg)
+                    c.create_image(cx, cy, image=tkimg, tags=tag)
+                else:
+                    abbr = CLASS_ABBR.get(cls, "?")
+                    c.create_text(cx, cy, text=abbr, fill=color,
+                                  font=("Segoe UI", 8, "bold"), tags=tag)
 
             # badge numéro (petit disque en bas à droite du jeton)
             bx, by = cx + R - 5, cy + R - 5
@@ -1573,6 +1606,31 @@ class App:
         if names != set(self.windows.keys()):
             self.refresh_windows()
         self.root.after(3000, self.tick)
+
+    def watch_foreground(self):
+        """Quand Kali est réduit : la mini-barre n'est visible que si Dofus
+        (ou la mini-barre elle-même) est au premier plan."""
+        try:
+            if self.minimized and self.cfg.get("minibar", True):
+                fg = GetForegroundWindow()
+                on_dofus = fg in self.windows.values()
+                on_mb = (self.mb is not None
+                         and fg == int(self.mb.winfo_id()))
+                # certaines fenêtres enfant de la mini-barre : tolérance
+                if self.mb is not None and not on_mb:
+                    try:
+                        on_mb = (self.mb.winfo_id()
+                                 == GetAncestor(fg, 2))  # GA_ROOT
+                    except Exception:
+                        pass
+                want = on_dofus or on_mb
+                if want and self.mb is None:
+                    self.show_minibar()
+                elif not want and self.mb is not None:
+                    self.hide_minibar()
+        except Exception:
+            pass
+        self.root.after(350, self.watch_foreground)
 
     def on_close(self):
         try:
