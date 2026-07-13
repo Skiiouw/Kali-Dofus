@@ -100,7 +100,7 @@ VK_CODES = {
 }
 
 APP_TITLE = "Kali"
-APP_VERSION = "4.2"
+APP_VERSION = "4.3"
 
 # Style par classe : (glyphe d'arme stylisé, couleur) — dessins génériques,
 # aucune ressource Ankama. Détecté depuis le titre "Nom - Classe - ...".
@@ -1360,68 +1360,73 @@ class App:
         os._exit(0)
 
     # ---------------- menu options ----------------
+    def _submenu(self, parent):
+        return tk.Menu(parent, tearoff=0, bg=C_CARD, fg=C_TEXT,
+                       activebackground=C_ACCENT_D, activeforeground=C_TEXT,
+                       bd=0, font=self.f_small)
+
     def build_options_menu(self):
         m = tk.Menu(self.root, tearoff=0, bg=C_CARD, fg=C_TEXT,
                     activebackground=C_ACCENT_D, activeforeground=C_TEXT,
                     bd=0, font=self.f_small)
 
-        # ---- Section MINI-BARRE ----
-        m.add_command(label="—  Mini-barre  —", state="disabled")
+        # ▸ Mini-barre
+        mb = self._submenu(m)
         self.var_minibar = tk.BooleanVar(value=self.cfg.get("minibar", True))
-        m.add_checkbutton(label="Afficher en mode réduit",
-                          variable=self.var_minibar,
-                          command=self.on_toggle_minibar,
-                          selectcolor=C_ACCENT)
-        m.add_command(label="Réinitialiser sa position",
-                      command=self.reset_minibar_position)
+        mb.add_checkbutton(label="Afficher en mode réduit",
+                           variable=self.var_minibar,
+                           command=self.on_toggle_minibar,
+                           selectcolor=C_ACCENT)
+        mb.add_command(label="Réinitialiser sa position",
+                       command=self.reset_minibar_position)
+        m.add_cascade(label="Mini-barre", menu=mb)
 
-        # ---- Section PERSONNAGES ----
-        m.add_separator()
-        m.add_command(label="—  Personnages  —", state="disabled")
+        # ▸ Personnages
+        pj = self._submenu(m)
         self.var_focus1 = tk.BooleanVar(
             value=self.cfg.get("auto_focus_first", True))
-        m.add_checkbutton(label="Focus auto du perso n\u00b01 au lancement",
-                          variable=self.var_focus1,
-                          command=self.on_toggle_focus1,
-                          selectcolor=C_ACCENT)
+        pj.add_checkbutton(label="Focus auto du perso n\u00b01 au lancement",
+                           variable=self.var_focus1,
+                           command=self.on_toggle_focus1,
+                           selectcolor=C_ACCENT)
         self.var_direct = tk.StringVar(value=self.cfg.get("direct_mod", "Alt"))
-        sm = tk.Menu(m, tearoff=0, bg=C_CARD, fg=C_TEXT,
-                     activebackground=C_ACCENT_D, activeforeground=C_TEXT,
-                     bd=0, font=self.f_small)
+        dm = self._submenu(pj)
         for mode in self.DIRECT_MODS:
-            sm.add_radiobutton(label=mode, value=mode,
+            dm.add_radiobutton(label=mode, value=mode,
                                variable=self.var_direct,
                                command=lambda mo=mode: self.set_direct_mod(mo),
                                selectcolor=C_ACCENT)
-        m.add_cascade(label="Touche d'accès direct (1-8)", menu=sm)
+        pj.add_cascade(label="Touche d'accès direct (1-8)", menu=dm)
+        m.add_cascade(label="Personnages", menu=pj)
 
-        # ---- Section NOTIFICATIONS ----
-        m.add_separator()
-        m.add_command(label="—  Notifications  —", state="disabled")
+        # ▸ Notifications
+        nt = self._submenu(m)
         self.var_notify = tk.BooleanVar(
             value=self.cfg.get("notify_session", True)
             or self.cfg.get("break_reminder", True))
-        m.add_checkbutton(label="Temps de jeu & rappels de pause",
-                          variable=self.var_notify,
-                          command=self.on_toggle_notify,
-                          selectcolor=C_ACCENT)
+        nt.add_checkbutton(label="Temps de jeu & rappels de pause",
+                           variable=self.var_notify,
+                           command=self.on_toggle_notify,
+                           selectcolor=C_ACCENT)
+        m.add_cascade(label="Notifications", menu=nt)
 
-        # ---- Section MISES À JOUR ----
-        m.add_separator()
-        m.add_command(label="—  Mises à jour  —", state="disabled")
+        # ▸ Mises à jour
+        up = self._submenu(m)
         self.var_autoupd = tk.BooleanVar(value=self.cfg.get("auto_update", True))
-        m.add_checkbutton(label="Automatiques au démarrage",
-                          variable=self.var_autoupd,
-                          command=self.on_toggle_autoupd,
-                          selectcolor=C_ACCENT)
-        m.add_command(label="Vérifier maintenant",
-                      command=lambda: self.check_updates_async(manual=True))
+        up.add_checkbutton(label="Automatiques au démarrage",
+                           variable=self.var_autoupd,
+                           command=self.on_toggle_autoupd,
+                           selectcolor=C_ACCENT)
+        up.add_command(label="Vérifier maintenant",
+                       command=lambda: self.check_updates_async(manual=True))
+        up.add_separator()
+        up.add_command(label="Ouvrir le dossier des mises à jour",
+                       command=self.open_update_folder)
+        m.add_cascade(label="Mises à jour", menu=up)
 
-        # ---- Section AVANCÉ ----
+        # entrées directes
         m.add_separator()
         m.add_command(label="Diagnostic", command=self.show_diag)
-        m.add_command(label="Ouvrir le dossier des mises à jour",
-                      command=self.open_update_folder)
         self.opt_menu = m
 
     def show_options(self, event):
