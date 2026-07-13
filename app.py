@@ -893,6 +893,7 @@ class App:
             return
         c = self.mb_canvas
         c.delete("all")
+        self._mb_imgs = []   # libère les images du rendu précédent
         n = len(self.order)
         R, GAP = self.MB_R, self.MB_GAP
         cell = 2 * R + GAP
@@ -907,29 +908,29 @@ class App:
             glyph, color = CLASS_STYLE.get(cls, CLASS_DEFAULT)
             active = (i == self.current_index)
             tag = f"mb{i}"
-
-            if active:
-                # double anneau lumineux (façon sélection)
-                c.create_oval(cx - R - 6, cy - R - 6, cx + R + 6, cy + R + 6,
-                              outline=C_ACCENT, width=1, tags=tag)
-                c.create_oval(cx - R - 3, cy - R - 3, cx + R + 3, cy + R + 3,
-                              outline=C_ACCENT, width=2, tags=tag)
-
-            # jeton : disque sombre + anneau couleur de classe
-            c.create_oval(cx - R, cy - R, cx + R, cy + R,
-                          fill="#16161e", outline=color,
-                          width=3 if active else 2, tags=tag)
-
             hwnd = self.windows.get(name)
-            icon = window_icon_image(hwnd, int(R * 1.7), bg="#16161e") if hwnd else None
-            drawn = False
+
+            # halo bleu de sélection (plusieurs cercles dégradés = plus doux)
+            if active:
+                for k, wdt in ((7, 1), (5, 1), (3, 2)):
+                    c.create_oval(cx - R - k, cy - R - k, cx + R + k, cy + R + k,
+                                  outline=C_ACCENT, width=wdt, tags=tag)
+
+            # disque de fond + anneau de classe (adouci : 2 cercles superposés)
+            c.create_oval(cx - R, cy - R, cx + R, cy + R,
+                          fill="#16161e", outline=self._soft(color),
+                          width=1, tags=tag)
+            c.create_oval(cx - R + 1, cy - R + 1, cx + R - 1, cy + R - 1,
+                          fill="", outline=color,
+                          width=2 if active else 2, tags=tag)
+
+            # icône ronde de la fenêtre (déjà détourée en cercle)
+            icon = window_icon_image(hwnd, int((R - 3) * 2), bg="#16161e") \
+                if hwnd else None
             if icon is not None:
-                try:
-                    c.create_image(cx, cy, image=icon, tags=tag)
-                    drawn = True
-                except Exception:
-                    pass
-            if not drawn:
+                self._mb_imgs.append(icon)
+                c.create_image(cx, cy, image=icon, tags=tag)
+            else:
                 abbr = CLASS_ABBR.get(cls, "?")
                 c.create_text(cx, cy, text=abbr, fill=color,
                               font=("Segoe UI", 8, "bold"), tags=tag)
@@ -964,6 +965,15 @@ class App:
 
         c.bind("<B1-Motion>", self.mb_drag)
         c.bind("<ButtonRelease-1>", self.mb_release)
+
+    @staticmethod
+    def _soft(hex_color):
+        """Version atténuée d'une couleur (pour adoucir le bord de l'anneau)."""
+        r = int(hex_color[1:3], 16)
+        g = int(hex_color[3:5], 16)
+        b = int(hex_color[5:7], 16)
+        f = 0.55
+        return f"#{int(r*f):02x}{int(g*f):02x}{int(b*f):02x}"
 
     def mb_press(self, event, index):
         self._mb_drag = {
@@ -1368,6 +1378,9 @@ class App:
     def update_all_cards(self):
         for i in range(len(self.cards)):
             self.update_card(i)
+        # garde la mini-barre synchronisée (anneau bleu sur le bon perso)
+        if self.mb is not None:
+            self.fill_minibar()
 
     def set_hover(self, frame, on):
         if self.drag and self.drag.get("moved"):
