@@ -100,7 +100,7 @@ VK_CODES = {
 }
 
 APP_TITLE = "Kali"
-APP_VERSION = "4.3"
+APP_VERSION = "4.4"
 
 # Style par classe : (glyphe d'arme stylisé, couleur) — dessins génériques,
 # aucune ressource Ankama. Détecté depuis le titre "Nom - Classe - ...".
@@ -165,14 +165,21 @@ class BITMAPINFOHEADER(ctypes.Structure):
 
 
 def get_window_hicon(hwnd):
-    """Handle de l'icône de la fenêtre (priorité aux grandes icônes)."""
-    res = wt.DWORD()
-    for wparam in (1, 2, 0):  # ICON_BIG, ICON_SMALL2, ICON_SMALL
-        if user32.SendMessageTimeoutW(hwnd, 0x7F, wparam, 0,
-                                      0x2, 200, ctypes.byref(res)) and res.value:
-            return res.value
-    get_cls = getattr(user32, "GetClassLongPtrW", user32.GetClassLongW)
-    return get_cls(hwnd, -14) or get_cls(hwnd, -34)
+    """Handle de l'icône de la fenêtre (priorité aux grandes icônes).
+    Sûr si la fenêtre est morte : retourne 0."""
+    try:
+        if not IsWindow(hwnd):
+            return 0
+        res = wt.DWORD()
+        for wparam in (1, 2, 0):  # ICON_BIG, ICON_SMALL2, ICON_SMALL
+            if user32.SendMessageTimeoutW(hwnd, 0x7F, wparam, 0,
+                                          0x2, 200,
+                                          ctypes.byref(res)) and res.value:
+                return res.value
+        get_cls = getattr(user32, "GetClassLongPtrW", user32.GetClassLongW)
+        return get_cls(hwnd, -14) or get_cls(hwnd, -34)
+    except Exception:
+        return 0
 
 
 def _hicon_to_rgba(hicon, cap):
@@ -202,33 +209,41 @@ def _hicon_to_rgba(hicon, cap):
 
 def window_icon_pil(hwnd, size):
     """Image Pillow RGBA de l'icône (ronde, anti-aliasée), ou None.
-    Rendu à 4x puis réduit en LANCZOS = qualité maximale."""
+    Rendu à 4x puis réduit en LANCZOS = qualité maximale.
+    Sûr même si la fenêtre vient de mourir (crash Dofus)."""
     if not PIL_OK or hwnd is None:
         return None
-    cap = min(256, max(64, size * 4))
-    raw = None
-    hicon = get_window_hicon(hwnd)
-    if hicon:
-        raw = _hicon_to_rgba(hicon, cap)
-    if raw is None:
+    try:
+        if not IsWindow(hwnd):        # fenêtre fermée/crashée
+            return None
+    except Exception:
         return None
-    # BGRA -> RGBA
-    img = Image.frombuffer("RGBA", (cap, cap), raw, "raw", "BGRA", 0, 1)
-    # DrawIconEx laisse souvent un canal alpha inexploitable (tout ou
-    # partiellement nul), ce qui rendait le jeton transparent. Si l'alpha
-    # est quasi vide, on le remplace par une opacité pleine.
-    a = img.getchannel("A")
-    lo, hi = a.getextrema()
-    if hi < 16:                       # alpha globalement nul -> inexploitable
-        img.putalpha(255)
-    # notre masque circulaire remplace de toute façon l'alpha au final
-    big = size * 4
-    img = img.resize((big, big), Image.LANCZOS)
-    mask = Image.new("L", (big, big), 0)
-    ImageDraw.Draw(mask).ellipse((0, 0, big - 1, big - 1), fill=255)
-    img.putalpha(mask)
-    img = img.resize((size, size), Image.LANCZOS)
-    return img
+    try:
+        cap = min(256, max(64, size * 4))
+        raw = None
+        hicon = get_window_hicon(hwnd)
+        if hicon:
+            raw = _hicon_to_rgba(hicon, cap)
+        if raw is None:
+            return None
+        # BGRA -> RGBA
+        img = Image.frombuffer("RGBA", (cap, cap), raw, "raw", "BGRA", 0, 1)
+        # DrawIconEx laisse souvent un canal alpha inexploitable (tout ou
+        # partiellement nul), ce qui rendait le jeton transparent. Si l'alpha
+        # est quasi vide, on le remplace par une opacité pleine.
+        a = img.getchannel("A")
+        lo, hi = a.getextrema()
+        if hi < 16:                   # alpha globalement nul -> inexploitable
+            img.putalpha(255)
+        # notre masque circulaire remplace de toute façon l'alpha au final
+        big = size * 4
+        img = img.resize((big, big), Image.LANCZOS)
+        mask = Image.new("L", (big, big), 0)
+        ImageDraw.Draw(mask).ellipse((0, 0, big - 1, big - 1), fill=255)
+        img.putalpha(mask)
+        return img.resize((size, size), Image.LANCZOS)
+    except Exception:
+        return None
 
 
 _TOKEN_CACHE = {}
@@ -327,7 +342,11 @@ def make_token_pil(hwnd, R, ring_hex, active, accent_hex="#4cc2ff",
 
     im = im.resize((S, S), Image.LANCZOS)
     tkimg = ImageTk.PhotoImage(im)
-    _TOKEN_CACHE[key] = tkimg
+    # IMPORTANT : on ne met en cache QUE si l'icône a été récupérée.
+    # Au lancement, Dofus met parfois un instant à publier son icône ;
+    # sans cette garde, un jeton vide restait figé toute la session.
+    if ico is not None:
+        _TOKEN_CACHE[key] = tkimg
     return tkimg
 
 
@@ -397,36 +416,44 @@ def enum_dofus_windows():
     results = []
 
     def cb(hwnd, lparam):
-        if not IsWindowVisible(hwnd):
-            return True
-        title = get_window_title(hwnd)
-        if not title:
-            return True
-        if title == APP_TITLE:  # notre propre fenêtre
-            return True
-        wclass = get_window_class(hwnd)
-        exe = get_process_exe(hwnd)
-        # Détection stricte : le PROCESSUS doit être Dofus. Le titre seul ne
-        # suffit plus (un onglet de navigateur "dofus - Recherche" passait !).
-        # La classe Unity ne sert de secours que si le processus est illisible
-        # (jeu lancé en administrateur).
-        is_dofus = (
-            "dofus" in exe
-            or (exe == "" and wclass == "UnityWndClass")
-        )
-        if not is_dofus:
-            return True
-        # ignore le launcher Ankama
-        if "ankama" in exe:
-            return True
-        # Nom du perso : partie avant " - " si présente, sinon titre entier
-        name = title.split(" - ")[0].strip()
-        if not name or name.lower().startswith("dofus"):
-            name = title
-        results.append((hwnd, name, title))
+        # protégé : une fenêtre peut disparaître PENDANT l'énumération
+        # (crash Dofus) — on l'ignore au lieu de laisser remonter l'erreur
+        try:
+            if not IsWindowVisible(hwnd):
+                return True
+            title = get_window_title(hwnd)
+            if not title:
+                return True
+            if title == APP_TITLE:  # notre propre fenêtre
+                return True
+            wclass = get_window_class(hwnd)
+            exe = get_process_exe(hwnd)
+            # Détection stricte : le PROCESSUS doit être Dofus. Le titre seul
+            # ne suffit pas (un onglet "dofus - Recherche" passait !).
+            # La classe Unity ne sert de secours que si le processus est
+            # illisible (jeu lancé en administrateur).
+            is_dofus = (
+                "dofus" in exe
+                or (exe == "" and wclass == "UnityWndClass")
+            )
+            if not is_dofus:
+                return True
+            # ignore le launcher Ankama
+            if "ankama" in exe:
+                return True
+            # Nom du perso : partie avant " - " si présente, sinon titre entier
+            name = title.split(" - ")[0].strip()
+            if not name or name.lower().startswith("dofus"):
+                name = title
+            results.append((hwnd, name, title))
+        except Exception:
+            pass
         return True
 
-    EnumWindows(EnumWindowsProc(cb), 0)
+    try:
+        EnumWindows(EnumWindowsProc(cb), 0)
+    except Exception:
+        pass
     return results
 
 
@@ -1046,9 +1073,18 @@ class App:
     def fill_minibar(self):
         if self.mb is None:
             return
+        try:
+            self._fill_minibar_inner()
+        except Exception:
+            # une fenêtre Dofus qui meurt en plein rendu ne doit jamais
+            # faire tomber Kali : on retente au prochain cycle
+            self.root.after(1000, self.refresh_windows)
+
+    def _fill_minibar_inner(self):
         c = self.mb_canvas
         c.delete("all")
         self._mb_imgs = []   # libère les images du rendu précédent
+        self._mb_icons_pending = False
         n = len(self.order)
         R, GAP = self.MB_R, self.MB_GAP
         HALO = 10            # marge pour que le halo ne soit jamais coupé
@@ -1067,6 +1103,10 @@ class App:
             hwnd = self.windows.get(name)
 
             # jeton haute qualité (Pillow) : halo + anneau + icône, anti-aliasé
+            # (si l'icône n'est pas encore publiée par Dofus, le jeton n'est
+            # pas mis en cache -> on replanifie un rendu un peu plus tard)
+            if hwnd and (hwnd, R, color, active) not in _TOKEN_CACHE:
+                self._mb_icons_pending = True
             token = make_token_pil(hwnd, R, color, active) if hwnd else None
             if token is not None:
                 self._mb_imgs.append(token)
@@ -1144,6 +1184,17 @@ class App:
         c.bind("<B1-Motion>", self.mb_drag)
         c.bind("<ButtonRelease-1>", self.mb_release)
 
+        # des icônes manquaient (Dofus pas encore prêt) : on retente bientôt,
+        # au plus quelques fois, jusqu'à ce que toutes soient récupérées
+        if self._mb_icons_pending:
+            tries = getattr(self, "_mb_icon_tries", 0)
+            if tries < 15:
+                self._mb_icon_tries = tries + 1
+                self.root.after(1500, lambda: self.fill_minibar()
+                                if self.mb is not None else None)
+        else:
+            self._mb_icon_tries = 0
+
     def _mb_toggle_lock(self, event=None):
         self.cfg["minibar_locked"] = not self.cfg.get("minibar_locked", False)
         self.save_config()
@@ -1206,7 +1257,10 @@ class App:
 
     # ---------------- liste des persos ----------------
     def refresh_windows(self):
-        wins = enum_dofus_windows()
+        try:
+            wins = enum_dofus_windows()
+        except Exception:
+            return   # énumération impossible (fenêtre en train de mourir)
         _TOKEN_CACHE.clear()   # icônes/jetons potentiellement obsolètes
         # noms uniques : si deux fenêtres ont le même titre (ex: deux "Dofus"
         # pas encore connectés), on suffixe (2), (3)...
@@ -1811,11 +1865,16 @@ class App:
 
     # ---------------- boucle ----------------
     def tick(self):
-        # rafraîchit automatiquement si une fenêtre a disparu/apparu
-        wins = enum_dofus_windows()
-        names = {name for _, name, _ in wins}
-        if names != set(self.windows.keys()):
-            self.refresh_windows()
+        # rafraîchit automatiquement si une fenêtre a disparu/apparu.
+        # Entièrement protégé : une fenêtre Dofus qui crashe pendant
+        # l'énumération ne doit jamais interrompre la boucle de Kali.
+        try:
+            wins = enum_dofus_windows()
+            names = {name for _, name, _ in wins}
+            if names != set(self.windows.keys()):
+                self.refresh_windows()
+        except Exception:
+            pass
         self.root.after(3000, self.tick)
 
     def watch_foreground(self):
